@@ -3,8 +3,8 @@
 C++ exercise checker.
 
 Usage:
-  python3 tools/check_progress.py --question 13 --file submissions/13_sort_students.cpp
-  python3 tools/check_progress.py --dir submissions
+  python3 tools/check_progress.py --question 13 --file exercises/05_stl_containers/submissions/13_sort_students.cpp
+  python3 tools/check_progress.py --dir exercises
   python3 tools/check_progress.py --all-answers
 
 The checker compiles a solution, runs configured tests, and reports the first
@@ -225,7 +225,10 @@ def check_solution(question: int, source: Path, keep_build: bool = False) -> boo
 
 def source_files_from_dir(directory: Path) -> list[tuple[int, Path]]:
     files: list[tuple[int, Path]] = []
-    for path in sorted(directory.glob("*.cpp")):
+    for path in sorted(directory.rglob("*.cpp")):
+        if "answers" in path.parts:
+            continue
+
         question = infer_question_number(path)
         if question is not None:
             files.append((question, path))
