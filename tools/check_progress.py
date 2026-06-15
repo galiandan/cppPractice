@@ -22,12 +22,11 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMPILER = os.environ.get("CXX", "g++")
-DEFAULT_FLAGS = ["-std=c++17", "-Wall", "-Wextra", "-pthread"]
+DEFAULT_FLAGS = ["-std=c++17", "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-pthread"]
 
 
 @dataclass
@@ -106,7 +105,11 @@ def run_binary(binary: Path, case: TestCase, workdir: Path) -> tuple[bool, str, 
         return False, output, f"运行退出码不是 0，而是 {result.returncode}"
 
     if case.expected is not None and not numeric_lines_close(output, case.expected):
-        return False, output, f"输出不匹配，期望：\n{case.expected}"
+        return False, output, (
+            "输出不匹配\n"
+            f"期望输出：\n{case.expected}\n"
+            f"实际输出：\n{normalize_output(output)}"
+        )
 
     for part in case.contains:
         if part not in output:
@@ -130,9 +133,17 @@ SPECS: dict[int, CheckSpec] = {
     9: CheckSpec("run", [TestCase("default", expected="Alice: 10000\nBob: 4800")]),
     10: CheckSpec("run", [TestCase("default", expected="4 + 6i")]),
     11: CheckSpec("run", [TestCase("default", expected="5/6\n1")]),
-    12: CheckSpec("run", [TestCase("stdin", stdin="cpp stl cpp oop\n", expected="cpp: 2\noop: 1\nstl: 1")]),
+    12: CheckSpec("run", [
+        TestCase("stdin-basic", stdin="cpp stl cpp oop\n", expected="cpp: 2\noop: 1\nstl: 1"),
+        TestCase("stdin-tie-order", stdin="z z a\n", expected="a: 1\nz: 2"),
+        TestCase("stdin-empty", stdin="", expected=""),
+    ]),
     13: CheckSpec("run", [TestCase("default", expected="Alice 95\nBob 88\nTom 88")]),
-    14: CheckSpec("run", [TestCase("stdin", stdin="3 1 2 3 2\n", expected="1 2 3")]),
+    14: CheckSpec("run", [
+        TestCase("stdin-basic", stdin="3 1 2 3 2\n", expected="1 2 3"),
+        TestCase("stdin-negative", stdin="-1 -2 -1 0\n", expected="-2 -1 0"),
+        TestCase("stdin-empty", stdin="", expected=""),
+    ]),
     15: CheckSpec("run", [TestCase("default", expected="github\nstackoverflow\ncppreference")]),
     16: CheckSpec("run", [TestCase("default", expected="12")]),
     17: CheckSpec("run", [TestCase("default", expected="7")]),
@@ -160,16 +171,25 @@ SPECS: dict[int, CheckSpec] = {
     39: CheckSpec("run", [TestCase("default", expected="second\nfirst")]),
     40: CheckSpec("run", [TestCase("default", expected="1 2 3\nhello cpp")]),
     41: CheckSpec("run", [TestCase("default", expected="int\nunknown\nstd::string")]),
-    42: CheckSpec("run", [TestCase("file", files={"scores.txt": "Alice 90\nBob 80\n"}, expected="85")]),
+    42: CheckSpec("run", [
+        TestCase("file-basic", files={"scores.txt": "Alice 90\nBob 80\n"}, expected="85"),
+        TestCase("file-three-rows", files={"scores.txt": "A 100\nB 70\nC 40\n"}, expected="70"),
+    ]),
     43: CheckSpec("run", [TestCase("default", contains=["1 0 learn file stream", "2 1 write serializer"])]),
     44: CheckSpec("run", [TestCase("default", expected="Alice\n95\ncpp")]),
-    45: CheckSpec("run", [TestCase("file", files={"app.conf": "# test\nhost=127.0.0.1\nport=8080\n"}, contains=["host = 127.0.0.1", "port = 8080"])]),
+    45: CheckSpec("run", [
+        TestCase("file-basic", files={"app.conf": "# test\nhost=127.0.0.1\nport=8080\n"}, contains=["host = 127.0.0.1", "port = 8080"]),
+        TestCase("file-overwrite", files={"app.conf": "mode=debug\ninvalid\nmode=release\n"}, contains=["mode = release"]),
+    ]),
     46: CheckSpec("run", [TestCase("default", expected="pay 99.5 by alipay")]),
     47: CheckSpec("run", [TestCase("default", expected="draw circle")]),
     48: CheckSpec("run", [TestCase("default", expected="phone display: 26.5")]),
     49: CheckSpec("run", [TestCase("default", expected="127.0.0.1")]),
     50: CheckSpec("run", [TestCase("default", expected="")]),
-    51: CheckSpec("run", [TestCase("args", args=["--name", "Alice", "--age", "18"], expected="name=Alice\nage=18")]),
+    51: CheckSpec("run", [
+        TestCase("args-basic", args=["--name", "Alice", "--age", "18"], expected="name=Alice\nage=18"),
+        TestCase("args-reordered", args=["--age", "20", "--name", "Bob"], expected="name=Bob\nage=20"),
+    ]),
     52: CheckSpec("run", [TestCase("default", regex=r"work cost \d+ ms")]),
     53: CheckSpec("run", [TestCase("default", expected="70\n50")]),
 }
@@ -200,6 +220,7 @@ def check_solution(question: int, source: Path, keep_build: bool = False) -> boo
         ok, compile_output = compile_source(source, binary, link)
         if not ok:
             print(f"[FAIL] 题 {question}: 编译失败: {source}")
+            print(f"编译命令使用: {DEFAULT_COMPILER} {' '.join(DEFAULT_FLAGS)}")
             print(compile_output.strip())
             return False
 
@@ -214,9 +235,6 @@ def check_solution(question: int, source: Path, keep_build: bool = False) -> boo
             if not ok:
                 print(f"[FAIL] 题 {question}: 测试 {case.name} 失败: {source}")
                 print(reason)
-                if output:
-                    print("实际输出：")
-                    print(output.strip())
                 return False
 
         print(f"[PASS] 题 {question}: {source}")
